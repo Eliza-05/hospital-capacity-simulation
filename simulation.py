@@ -7,6 +7,7 @@ También guarda en self.history un registro por cada paso simulado, que
 luego usa exporter.py para generar reportes.
 """
 
+import math
 import random
 
 from config import SCREEN_HEIGHT, SCREEN_WIDTH
@@ -18,10 +19,23 @@ class Simulation:
     def __init__(self, population, initial_infected, pct_grave,
                  mortality_hospitalized, mortality_waiting,
                  infection_duration, grave_duration, initial_beds,
+                 transmission_probability=0.0, infection_radius=0.0,
                  width=SCREEN_WIDTH, height=SCREEN_HEIGHT,
                  random_fn=random.random):
+        self._validate_params(
+            population=population, initial_infected=initial_infected,
+            pct_grave=pct_grave, mortality_hospitalized=mortality_hospitalized,
+            mortality_waiting=mortality_waiting,
+            infection_duration=infection_duration,
+            grave_duration=grave_duration, initial_beds=initial_beds,
+            transmission_probability=transmission_probability,
+            infection_radius=infection_radius,
+        )
+
         self.population = population
         self.initial_infected = initial_infected
+        self.transmission_probability = transmission_probability
+        self.infection_radius = infection_radius
         self.pct_grave = pct_grave
         self.mortality_hospitalized = mortality_hospitalized
         self.mortality_waiting = mortality_waiting
@@ -37,6 +51,38 @@ class Simulation:
 
         self.paused = False
         self.speed = 1
+        self.current_cycle = 0
+
+    @staticmethod
+    def _validate_params(population, initial_infected, pct_grave,
+                          mortality_hospitalized, mortality_waiting,
+                          infection_duration, grave_duration, initial_beds,
+                          transmission_probability, infection_radius):
+        """Valida los parámetros del modelo al construir la simulación.
+        Lanza ValueError con un mensaje claro ante cualquier valor fuera
+        de rango, en vez de dejar que el modelo corra con datos inválidos."""
+        if population < 0:
+            raise ValueError("population no puede ser negativo")
+        if initial_infected < 0:
+            raise ValueError("initial_infected no puede ser negativo")
+        if initial_infected > population:
+            raise ValueError("initial_infected no puede superar a population")
+        if initial_beds < 0:
+            raise ValueError("initial_beds no puede ser negativo")
+        if infection_radius < 0:
+            raise ValueError("infection_radius no puede ser negativo")
+        if infection_duration <= 0:
+            raise ValueError("infection_duration debe ser mayor que 0")
+        if grave_duration <= 0:
+            raise ValueError("grave_duration debe ser mayor que 0")
+        for name, value in (
+            ("transmission_probability", transmission_probability),
+            ("pct_grave", pct_grave),
+            ("mortality_hospitalized", mortality_hospitalized),
+            ("mortality_waiting", mortality_waiting),
+        ):
+            if not 0 <= value <= 1:
+                raise ValueError(f"{name} debe estar entre 0 y 1")
 
     # ------------------------------------------------------------------
     # Lógica de la simulación
@@ -105,6 +151,7 @@ class Simulation:
             counts[person.state] += 1
 
         self.history.append({
+            "cycle": self.current_cycle,
             **counts,
             "hospitalized": sum(1 for p in self.people if p.hospitalized),
             "waiting": len(self.hospital.waiting_list),
@@ -121,6 +168,8 @@ class Simulation:
         if self.paused:
             return
 
+        self.current_cycle += 1
+
         for person in self.people:
             if person.state == "dead":
                 continue
@@ -132,7 +181,43 @@ class Simulation:
             elif person.state == "grave" and person.tick():
                 self._grave_expire(person)
 
+        self._spread_contagion()
         self._record_history()
+
+    def _spread_contagion(self):
+        """Revisa a las personas infectadas y, según qué tan cerca estén
+        de otras personas sanas y con qué probabilidad de contagio,
+        decide quién se enferma en este ciclo. Los nuevos contagios se
+        aplican todos al final, para que una persona recién contagiada
+        no pueda a su vez contagiar a otras en ese mismo ciclo."""
+        sources = [p for p in self.people if p.state == "infected"]
+        if not sources:
+            return
+
+        newly_infected = set()
+        for source in sources:
+            for other in self.people:
+                if other in newly_infected or not self._in_contagion_range(source, other):
+                    continue
+                if self.random_fn() < self.transmission_probability:
+                    newly_infected.add(other)
+
+        for person in newly_infected:
+            self._infect(person)
+
+    def _in_contagion_range(self, source, other):
+        """Indica si la segunda persona es sana y está lo bastante cerca
+        de la primera como para poder contagiarse de ella."""
+        if other.state != "susceptible":
+            return False
+        distance = math.dist((source.x, source.y), (other.x, other.y))
+        return distance <= self.infection_radius
+
+    def is_finished(self):
+        """Indica si la simulación ya llegó a su fin, es decir, si ya no
+        queda nadie infectado ni en estado grave que pueda seguir
+        contagiando o empeorando."""
+        return not any(p.state in ("infected", "grave") for p in self.people)
 
     # ------------------------------------------------------------------
     # Presentación (ventana de Pygame)

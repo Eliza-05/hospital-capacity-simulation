@@ -67,6 +67,45 @@ Como la simulación es probabilística, correr 5 / 10 / 20 camas una sola vez ca
 - **No usar el control en vivo de +/- camas durante las corridas de comparación.** La capacidad debe quedar fija desde el inicio de cada corrida (5, 10 o 20) para poder decir "este escenario corresponde a 5 camas". El control `UP`/`DOWN` en vivo se usa únicamente como demostración del controlador en el video de 2 minutos, no en las corridas que alimentan el Excel de comparación.
 - *(Opcional, no obligatorio para esta entrega)*: si sobra tiempo, correr varias repeticiones por escenario y promediar resultados — conecta directamente con la idea de muestreo/convergencia de Monte Carlo vista en el material de Pygame, pero no es necesario para responder la pregunta de decisión de forma razonable.
 
+### 1.8 Contrato de la lógica ya implementada (para quien construya la parte visual)
+
+Toda la lógica (`person.py`, `hospital.py`, `simulation.py`, `config.py`) está terminada y probada con tests (`python -m pytest tests/ -v`). Esta sección documenta exactamente qué hace, para que la parte visual (`draw()`, `handle_event()`, `run()`) se pueda construir sin tener que leer el código de lógica primero.
+
+**Contagio por proximidad (nuevo respecto al diagrama de 1.3):** el diagrama de estados de la sección 1.3 no mostraba cómo un susceptible se contagia — ahora sí está implementado. En cada `update()`, cada persona `infected` puede contagiar a cada `susceptible` que esté a una distancia ≤ `infection_radius`, con probabilidad `transmission_probability`. El contagio se calcula **al final** de cada ciclo (después de mover a todos y de resolver los vencimientos de temporizador de ese ciclo), así que un contagio nuevo empieza a contar sus propios ciclos recién en el siguiente `update()`.
+
+**Parámetros del constructor de `Simulation`** (los que no tienen valor por defecto son obligatorios):
+
+| Parámetro | Significado | Rango válido |
+|---|---|---|
+| `population` | Cantidad total de personas a crear en `populate()` | entero ≥ 0 |
+| `initial_infected` | Cuántas de esas personas arrancan infectadas | entero, `0 ≤ initial_infected ≤ population` |
+| `transmission_probability` | Probabilidad de contagio al haber contacto | `0.0` – `1.0` (default `0.0` = contagio desactivado) |
+| `infection_radius` | Distancia máxima para considerar "contacto" | número ≥ 0 (default `0.0`) |
+| `pct_grave` | Probabilidad de que un infectado pase a grave al vencer `infection_duration` | `0.0` – `1.0` |
+| `infection_duration` | Ciclos que dura el estado `infected` | entero > 0 |
+| `grave_duration` | Ciclos que dura el estado `grave` | entero > 0 |
+| `mortality_hospitalized` | Probabilidad de morir al vencer `grave_duration` estando hospitalizado | `0.0` – `1.0` |
+| `mortality_waiting` | Probabilidad de morir al vencer `grave_duration` estando en espera | `0.0` – `1.0` |
+| `initial_beds` | Capacidad inicial del hospital | entero ≥ 0 |
+| `width`, `height` | Límites de la pantalla para posiciones y movimiento | default: `config.SCREEN_WIDTH`/`SCREEN_HEIGHT` (800×600) |
+| `random_fn` | Función sin argumentos que devuelve un float en `[0, 1)` | default `random.random`; para reproducibilidad usar `random.Random(seed).random` |
+
+Si un valor no cumple su rango, el constructor lanza `ValueError` con un mensaje indicando cuál parámetro falló — no hace falta validar nada por fuera antes de crear `Simulation`.
+
+**Atributos y métodos que puede usar la parte visual:**
+
+- `sim.people` — lista de `Person` (cada una con `.x`, `.y`, `.state`, `.hospitalized`) para dibujar.
+- `sim.hospital.occupied` / `.capacity` / `.free_beds` / `.is_saturated` / `.waiting_list` — para el panel de contadores y el aviso de saturación.
+- `sim.current_cycle` — entero, arranca en 0, sube de a 1 en cada `update()` efectivo (no sube si `sim.paused` es `True`).
+- `sim.is_finished()` — `True` cuando ya no queda nadie `infected` ni `grave` (útil para saber cuándo cortar una corrida del Bloque D o mostrar "epidemia terminada" en pantalla).
+- `sim.paused` — booleano, lo lee `update()` para no avanzar nada si es `True`. `handle_event()` solo necesita alternarlo con `SPACE`.
+- `sim.speed` — está declarado pero **no tiene efecto todavía**; la forma pensada de usarlo es llamar a `sim.update()` esa cantidad de veces por frame (no escalar un delta-time), pero eso se implementa en `run()`.
+- `sim.hospital.set_capacity(n)` — devuelve `True`/`False` según si el cambio se aplicó; si sube la capacidad, reasigna automáticamente a quien estaba esperando. Úsalo directamente para `UP`/`DOWN`, ignorando el `False` sin necesidad de manejar excepciones.
+- `sim.populate()` — se llama una sola vez al arrancar (crea `sim.people` y registra el primer frame en `sim.history` con `cycle=0`).
+- `sim.history` — lista de diccionarios, uno por frame, con las claves: `cycle, susceptible, infected, grave, recovered, dead, hospitalized, waiting, free_beds, capacity, saturated`. Es lo que después usará `exporter.py`.
+
+**Lo que la parte visual NO necesita tocar:** cualquier método que empiece con `_` (`_infect`, `_infection_expire`, `_grave_expire`, `_recover`, `_record_history`, `_spread_contagion`, `_in_contagion_range`, `_validate_params`) es interno de `Simulation` y ya está resuelto.
+
 ---
 
 ## 2. Lista de tareas (según lo que pide el profesor)

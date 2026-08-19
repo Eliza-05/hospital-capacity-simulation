@@ -94,6 +94,97 @@ def test_set_capacity_rejects_decreasing_below_occupied_beds():
     assert hospital.capacity == 3
 
 
+def test_occupied_matches_number_of_hospitalized_people_through_several_operations():
+    hospital = Hospital(capacity=3)
+    people = [Person(x=0, y=0) for _ in range(5)]
+    for person in people:
+        hospital.admit(person)
+    assert hospital.occupied == sum(1 for p in people if p.hospitalized)
+
+    hospital.discharge(people[0])
+    assert hospital.occupied == sum(1 for p in people if p.hospitalized)
+
+    hospital.set_capacity(5)
+    assert hospital.occupied == sum(1 for p in people if p.hospitalized)
+
+    hospital.set_capacity(2)
+    assert hospital.occupied == sum(1 for p in people if p.hospitalized)
+
+
+def test_occupied_never_exceeds_capacity_through_several_operations():
+    hospital = Hospital(capacity=2)
+    people = [Person(x=0, y=0) for _ in range(6)]
+    for person in people:
+        hospital.admit(person)
+        assert hospital.occupied <= hospital.capacity
+
+    hospital.set_capacity(4)
+    assert hospital.occupied <= hospital.capacity
+
+    hospital.discharge(people[0])
+    assert hospital.occupied <= hospital.capacity
+
+
+def test_waiting_list_length_matches_people_still_without_a_bed():
+    hospital = Hospital(capacity=2)
+    people = [Person(x=0, y=0) for _ in range(5)]
+    for person in people:
+        hospital.admit(person)
+
+    # "sigue en el sistema" = todavía hospitalizado o en la lista de espera;
+    # a quien ya se le dio de alta (recuperado/fallecido en el flujo real)
+    # deja de contar para esta invariante.
+    still_in_system = list(people)
+    assert len(hospital.waiting_list) == sum(1 for p in still_in_system if not p.hospitalized)
+
+    hospital.discharge(people[0])
+    still_in_system.remove(people[0])
+
+    assert len(hospital.waiting_list) == sum(1 for p in still_in_system if not p.hospitalized)
+
+
+def test_discharge_on_empty_hospital_does_not_go_negative():
+    hospital = Hospital(capacity=1)
+    person = Person(x=0, y=0)
+
+    hospital.discharge(person)
+
+    assert hospital.occupied == 0
+
+
+def test_set_capacity_increase_admits_everyone_waiting_if_enough_new_beds():
+    hospital = Hospital(capacity=1)
+    occupant = Person(x=0, y=0)
+    hospital.admit(occupant)
+    waiting = [Person(x=0, y=0) for _ in range(3)]
+    for person in waiting:
+        hospital.admit(person)
+
+    hospital.set_capacity(4)
+
+    assert hospital.capacity == 4
+    assert hospital.occupied == 4
+    assert list(hospital.waiting_list) == []
+    assert all(person.hospitalized for person in waiting)
+
+
+def test_set_capacity_increase_admits_only_as_many_as_fit_and_keeps_fifo_order():
+    hospital = Hospital(capacity=1)
+    occupant = Person(x=0, y=0)
+    hospital.admit(occupant)
+    waiting = [Person(x=0, y=0) for _ in range(5)]
+    for person in waiting:
+        hospital.admit(person)
+
+    hospital.set_capacity(3)
+
+    assert hospital.occupied == 3
+    assert list(hospital.waiting_list) == waiting[2:]
+    assert waiting[0].hospitalized is True
+    assert waiting[1].hospitalized is True
+    assert waiting[2].hospitalized is False
+
+
 def test_remove_from_waiting_list_drops_a_queued_person():
     hospital = Hospital(capacity=1)
     occupant = Person(x=0, y=0)

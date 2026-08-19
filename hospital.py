@@ -44,9 +44,11 @@ class Hospital:
             self.waiting_list.append(person)
 
     def discharge(self, person):
-        """Da de alta a una persona, liberando su cama (ya sea porque se
-        recuperó o porque falleció), y de inmediato ingresa al primero
-        de la lista de espera, si hay alguien esperando."""
+        """Da de alta a una persona y libera su cama, ya sea porque se
+        recuperó o porque falleció. Si hay alguien en la lista de espera,
+        esa cama se le asigna de inmediato al primero de la fila."""
+        if self.occupied <= 0:
+            return
         self.occupied -= 1
         person.hospitalized = False
         if self.waiting_list:
@@ -63,6 +65,9 @@ class Hospital:
         if new_capacity < self.occupied:
             return False
         self.capacity = new_capacity
+        while self.waiting_list and self.free_beds > 0:
+            next_person = self.waiting_list.popleft()
+            self.admit(next_person)
         return True
 
     def remove_from_waiting_list(self, person):

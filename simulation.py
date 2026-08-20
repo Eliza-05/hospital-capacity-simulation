@@ -115,14 +115,32 @@ class Simulation:
         else:
             self._recover(person)
 
+    def _grave_mortality(self, person):
+        """Probabilidad de que un paciente grave fallezca al vencer su
+        temporizador.
+
+        No alcanza con mirar si tiene cama justo en ese instante: quien
+        esperó casi todo su periodo crítico y consiguió cama sobre el
+        final no recibió la misma atención que quien la tuvo desde el
+        principio, y contarlos igual haría que la capacidad hospitalaria
+        no tuviera ningún efecto sobre la mortalidad. Por eso el riesgo
+        se interpola entre ambos extremos según qué fracción del periodo
+        grave pasó sin atención."""
+        if not person.hospitalized:
+            return self.mortality_waiting
+
+        sin_atencion = min(person.cycles_waiting / self.grave_duration, 1.0)
+        return (self.mortality_hospitalized
+                + sin_atencion * (self.mortality_waiting
+                                  - self.mortality_hospitalized))
+
     def _grave_expire(self, person):
         """Se ejecuta cuando termina el periodo crítico de un paciente
         grave: decide si se recupera o fallece. La probabilidad de morir
-        es distinta según si el paciente logró conseguir cama o estuvo
-        esperando sin ser atendido."""
+        depende de cuánto tiempo del periodo crítico pasó con cama y
+        cuánto esperando sin ser atendido."""
         was_hospitalized = person.hospitalized
-        mortality = (self.mortality_hospitalized if was_hospitalized
-                     else self.mortality_waiting)
+        mortality = self._grave_mortality(person)
         if self.random_fn() < mortality:
             if was_hospitalized:
                 self.hospital.discharge(person)
@@ -175,6 +193,9 @@ class Simulation:
                 continue
 
             person.move(self.width, self.height, random_fn=self.random_fn)
+
+            if person.state == "grave" and not person.hospitalized:
+                person.cycles_waiting += 1
 
             if person.state == "infected" and person.tick():
                 self._infection_expire(person)

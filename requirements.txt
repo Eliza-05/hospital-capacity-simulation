@@ -1,4 +1,4 @@
-pygame
+pygame-ce   # fork mantenido de pygame; se importa igual (`import pygame`)
 numpy
 pandas
 openpyxl

@@ -91,9 +91,16 @@ def run_headless(beds, seed, max_cycles=MAX_CYCLES):
     return run_params, sim.history
 
 
-def run_interactive():
-    """Corre una simulación con visualización y controles en vivo."""
-    pass
+def run_interactive(beds=None, seed=SEED):
+    """Corre una simulación con visualización y controles en vivo.
+
+    Usa la misma semilla que el modo comparación para que la demo sea
+    reproducible: garantiza que el hospital se sature y que haya algo que
+    mostrar en el video, en vez de depender de que la corrida salga
+    interesante por azar."""
+    sim = build_simulation(INTERACTIVE_BEDS if beds is None else beds, seed)
+    sim.populate()
+    sim.run()
 
 
 def run_comparison(bed_scenarios=BED_SCENARIOS, seed=SEED,

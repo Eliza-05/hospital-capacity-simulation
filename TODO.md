@@ -43,15 +43,18 @@ que mirar para el análisis. Con `--reps 1` se hace una sola corrida.
 - [x] `Person.move()` — random walk acotado a `[0, width] x [0, height]` (constantes en `config.py`).
 - [x] `Simulation.populate()` — crea la población inicial con posiciones dentro de pantalla y marca a los `initial_infected`; registra el frame `cycle=0` en `self.history`.
 - [x] Tests de invariantes (`occupied == hospitalizados`, `occupied <= capacity`, `len(waiting_list) == graves esperando`, suma de estados == población) verificados a lo largo de una corrida completa con semilla fija.
-- [ ] Bloque D: correr los 3 escenarios (5/10/20 camas) y redactar el análisis — depende de `exporter.py` (Persona B) para poder generar el Excel.
+- [x] Bloque D: correr los 3 escenarios (5/10/20 camas) y redactar el análisis. (`docs/analisis_resultados.md`)
+- [x] Corregida la mortalidad para que dependa del tiempo sin cama, no de tener cama justo al vencer el temporizador (ver sección final).
 
 ## B. Visualización y controles (Persona B)
-- [ ] Al instanciar `Simulation` en `main.py`/`run()`, recordar pasar los 2 parámetros nuevos: `transmission_probability` e `infection_radius` (si se omiten, quedan en `0.0` y no hay contagio). Ver tabla completa de parámetros en `docs/alcance_y_plan_de_trabajo.md` sección 1.8.
-- [ ] Panel de texto en pantalla con los 8 contadores + ocupación de camas (agregar también `sim.current_cycle`, ya disponible).
-- [ ] Aviso visual cuando `hospital.is_saturated`.
-- [ ] Colores distintos por estado (azul/verde/naranja/rojo/morado).
-- [ ] Controles en vivo: pausa (`SPACE`, alterna `sim.paused`), subir/bajar camas (`UP`/`DOWN`, usar `sim.hospital.set_capacity(n)`), velocidad (`LEFT`/`RIGHT`).
-- [ ] Opcional: mostrar aviso de "epidemia terminada" cuando `sim.is_finished()` sea `True`.
+- [x] Al instanciar `Simulation` en `main.py`/`run()`, pasar `transmission_probability` e `infection_radius`. (centralizado en `SIM_PARAMS` de `main.py`, usado por `build_simulation()`)
+- [x] Panel de texto en pantalla con los 8 contadores + ocupación de camas + `current_cycle`. (`Simulation._draw_panel`, panel lateral de `PANEL_WIDTH=260` px a la derecha del área de simulación, para no tapar a los agentes)
+- [x] Aviso visual cuando `hospital.is_saturated`. (banner rojo arriba con cuántos están sin cama + barra de ocupación que se pone roja + texto "SATURADO" en el panel)
+- [x] Colores distintos por estado (azul/verde/naranja/rojo/morado). (`STATE_COLORS`; además aro blanco = tiene cama, aro amarillo = está en la lista de espera)
+- [x] Controles en vivo: pausa (`SPACE`), subir/bajar camas (`UP`/`DOWN`), velocidad (`LEFT`/`RIGHT`, x1 a x10). `ESC` cierra.
+- [x] Aviso de "epidemia terminada" cuando `sim.is_finished()`; además `run()` deja de actualizar para que el historial no siga creciendo con frames idénticos.
+- [x] `Simulation.run()` — loop de Pygame. `sim.speed` ahora sí tiene efecto: corre esa cantidad de `update()` por frame (no escala delta-time).
+- [x] Tests de controles y dibujado (`tests/test_controls.py`, 16 tests, sin abrir ventana).
 
 ## C. Datos y Excel (Persona B, con datos de Persona A)
 - [x] Registrar historial por frame (`self.history`, ya incluye `cycle`).
@@ -62,12 +65,16 @@ que mirar para el análisis. Con `--reps 1` se hace una sola corrida.
 - [x] Tests del exportador (`tests/test_exporter.py`, 15 tests) — total del repo: 97.
 
 ## D. Análisis (Persona A)
-- [ ] Redactar la respuesta a la pregunta de decisión con evidencia del Excel.
+- [x] Redactar la respuesta a la pregunta de decisión con evidencia del Excel. (`docs/analisis_resultados.md`)
 
 ## E. Entregables finales (conjunto)
-- [ ] Grabar video demo de 2 min.
-- [ ] Preparar presentación de 2 min.
-- [ ] Revisar que el código corra limpio desde cero.
+- [x] Guion del video demo de 2 min, con minutado y plan B. (`docs/guion_video.md`)
+- [x] Contenido de la presentación de 2 min: 6 diapositivas + reparto entre los dos + preguntas probables. (`docs/presentacion.md`)
+- [x] Revisar que el código corra limpio desde cero. (verificado en una copia limpia: `venv` nuevo -> `pip install -r requirements-dev.txt` -> 125 tests OK -> `--comparar` genera el Excel -> `run()` abre, procesa teclas y cierra bien)
+- [x] `requirements.txt`: `pygame` -> `pygame-ce` (mismo `import pygame`, pero sí instala en Python 3.14).
+- [x] README completo: instalación, ambos modos de ejecución, tabla de teclas, colores, resultados y equipo.
+- [ ] **Grabar** el video de 2 min siguiendo `docs/guion_video.md`.
+- [ ] **Armar** las diapositivas en PowerPoint/Canva a partir de `docs/presentacion.md` (los gráficos se copian del Excel).
 - [ ] Empaquetar entrega: código + video + presentación + README.
 
 ## Corrección del modelo de mortalidad (resuelta)

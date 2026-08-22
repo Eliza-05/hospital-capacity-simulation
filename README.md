@@ -77,6 +77,13 @@ aro **blanco** si tienen cama y **amarillo** si están en la lista de espera.
 La demo usa semilla fija, así que la corrida es siempre la misma y se puede
 ensayar antes de grabar. Se cambia en `SEED`, dentro de `main.py`.
 
+Con `--random` se sortea una semilla nueva en cada corrida, para ver
+epidemias distintas en vez de repetir siempre la misma:
+
+```bash
+python main.py --random
+```
+
 ## Tests
 
 ```bash

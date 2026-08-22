@@ -6,7 +6,8 @@ Uso previsto:
     - Modo comparación (Excel): correr varios escenarios (5/10/20 camas) con
       semilla fija y capacidad fija por corrida, exportando todo a Excel.
 
-    python main.py                     -> modo interactivo
+    python main.py                     -> modo interactivo (semilla fija)
+    python main.py --random            -> modo interactivo, semilla al azar
     python main.py --comparar          -> modo comparación (genera el .xlsx)
     python main.py --comparar --reps 1 -> una sola corrida por escenario
 """
@@ -147,8 +148,17 @@ def _parse_reps(argv):
         sys.exit("uso: python main.py --comparar --reps N")
 
 
+def _resolve_seed(argv, default_seed=SEED, randint_fn=random.randint):
+    """Lee `--random` de la línea de comandos: sin el flag usa la semilla
+    fija (demo reproducible), con el flag sortea una nueva en cada
+    corrida."""
+    if "--random" not in argv:
+        return default_seed
+    return randint_fn(0, 999_999)
+
+
 if __name__ == "__main__":
     if "--comparar" in sys.argv:
         run_comparison(repeticiones=_parse_reps(sys.argv))
     else:
-        run_interactive()
+        run_interactive(seed=_resolve_seed(sys.argv))

@@ -1,3 +1,5 @@
+import pytest
+
 from person import Person
 
 
@@ -74,37 +76,90 @@ def test_die_moves_person_to_dead_and_clears_hospitalization():
     assert person.hospitalized is False
 
 
-def test_move_stays_put_when_random_fn_returns_the_midpoint():
+def test_move_never_gains_velocity_when_random_fn_stays_at_the_midpoint():
+    """random_fn=0.5 siempre cae en el centro del rango [-1, 1], así que
+    tanto la dirección inicial como cada ajuste posterior dan cero."""
     person = Person(x=50, y=50)
 
     person.move(width=100, height=100, step=4, random_fn=lambda: 0.5)
+    person.move(width=100, height=100, step=4, random_fn=lambda: 0.5)
 
+    assert person.vx == 0
+    assert person.vy == 0
     assert person.x == 50
     assert person.y == 50
 
 
-def test_move_shifts_position_by_up_to_step_in_either_direction():
+def test_move_sets_velocity_from_a_random_direction_and_updates_position():
+    """La primera vez que se mueve, la velocidad sale directo de
+    random_fn (todavía no hay nada que perturbar)."""
+    values = iter([0.8, 0.3])
     person = Person(x=50, y=50)
 
-    person.move(width=100, height=100, step=4, random_fn=lambda: 1.0)
+    person.move(width=100, height=100, step=4, random_fn=lambda: next(values))
 
-    assert person.x == 54
-    assert person.y == 54
-
-
-def test_move_clamps_to_the_left_and_top_edges():
-    person = Person(x=1, y=1)
-
-    person.move(width=100, height=100, step=4, random_fn=lambda: 0.0)
-
-    assert person.x == 0
-    assert person.y == 0
+    assert person.vx == pytest.approx(2.4)
+    assert person.vy == pytest.approx(-1.6)
+    assert person.x == pytest.approx(52.4)
+    assert person.y == pytest.approx(48.4)
 
 
-def test_move_clamps_to_the_right_and_bottom_edges():
-    person = Person(x=99, y=99)
+def test_move_perturbs_existing_velocity_instead_of_replacing_it():
+    """Con velocidad ya asignada, move() debe sumarle un ajuste chico,
+    no sortear una velocidad nueva de cero (eso sería el comportamiento
+    viejo, sin inercia)."""
+    person = Person(x=50, y=50)
+    person.vx, person.vy = 2.0, 0.0
 
-    person.move(width=100, height=100, step=4, random_fn=lambda: 1.0)
+    person.move(width=100, height=100, step=4, random_fn=lambda: 0.75)
 
-    assert person.x == 100
-    assert person.y == 100
+    assert person.vx == pytest.approx(2.6)
+    assert person.vy == pytest.approx(0.6)
+
+
+def test_move_caps_velocity_at_the_configured_step():
+    person = Person(x=50, y=50)
+    person.vx, person.vy = 10.0, 0.0
+
+    person.move(width=100, height=100, step=4, random_fn=lambda: 0.5)
+
+    assert person.vx == pytest.approx(4.0)
+    assert person.vy == pytest.approx(0.0)
+    assert person.x == pytest.approx(54.0)
+    assert person.y == pytest.approx(50.0)
+
+
+def test_move_clamps_at_the_right_edge():
+    person = Person(x=95, y=50)
+    person.vx, person.vy = 10.0, 0.0
+
+    person.move(width=100, height=100, step=20, random_fn=lambda: 0.5)
+
+    assert person.x == pytest.approx(100.0)
+
+
+def test_move_clamps_at_the_left_edge():
+    person = Person(x=2, y=50)
+    person.vx, person.vy = -10.0, 0.0
+
+    person.move(width=100, height=100, step=20, random_fn=lambda: 0.5)
+
+    assert person.x == pytest.approx(0.0)
+
+
+def test_move_clamps_at_the_bottom_edge():
+    person = Person(x=50, y=95)
+    person.vx, person.vy = 0.0, 10.0
+
+    person.move(width=100, height=100, step=20, random_fn=lambda: 0.5)
+
+    assert person.y == pytest.approx(100.0)
+
+
+def test_move_clamps_at_the_top_edge():
+    person = Person(x=50, y=2)
+    person.vx, person.vy = 0.0, -10.0
+
+    person.move(width=100, height=100, step=20, random_fn=lambda: 0.5)
+
+    assert person.y == pytest.approx(0.0)

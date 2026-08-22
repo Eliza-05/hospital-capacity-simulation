@@ -17,4 +17,4 @@ PANEL_WIDTH = 260
 
 # Frames por segundo de la ventana de Pygame. La velocidad de la simulación
 # no se cambia tocando esto, sino corriendo varios update() por frame.
-FPS = 30
+FPS = 12

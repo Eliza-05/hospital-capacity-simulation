@@ -1,3 +1,4 @@
+import math
 import random
 
 import pytest
@@ -352,8 +353,12 @@ def test_contagion_from_two_sources_infects_target_only_once_without_crashing():
 
 
 def test_update_end_to_end_infects_a_nearby_susceptible_person():
+    # random_fn=0.5 hace que move() no desplace a nadie (velocidad inicial
+    # cero) para que la prueba se enfoque en el contagio y no dependa de a
+    # dónde termina moviéndose cada persona; 0.5 sigue siendo < que
+    # transmission_probability=1.0, así que el contagio igual ocurre.
     sim = make_simulation(infection_radius=10, transmission_probability=1.0,
-                           width=100, height=100, random_fn=lambda: 0.0)
+                           width=100, height=100, random_fn=lambda: 0.5)
     source = Person(x=0, y=0)
     sim._infect(source)
     target = Person(x=5, y=0)
@@ -490,14 +495,18 @@ def test_populate_records_an_initial_history_snapshot():
 
 
 def test_update_moves_a_living_person():
+    # random_fn=1.0 da velocidad inicial (step, step) en ambos ejes; al
+    # exceder la magnitud máxima (`step`), move() la recorta a esa
+    # magnitud repartida en 45°, es decir step/sqrt(2) por eje.
     sim = make_simulation(width=100, height=100, random_fn=lambda: 1.0)
     person = Person(x=50, y=50)
     sim.people = [person]
 
     sim.update()
 
-    assert person.x == 54
-    assert person.y == 54
+    expected = 50 + 4 / math.sqrt(2)
+    assert person.x == pytest.approx(expected)
+    assert person.y == pytest.approx(expected)
 
 
 def test_update_does_not_move_a_dead_person():

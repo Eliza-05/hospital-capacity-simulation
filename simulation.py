@@ -20,7 +20,7 @@ from config import FPS, PANEL_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH
 from hospital import Hospital
 from person import Person
 
-# Un color por estado, como pide el enunciado.
+# Un color por estado
 STATE_COLORS = {
     "susceptible": (70, 130, 220),    # azul
     "infected": (240, 150, 50),       # naranja
@@ -117,9 +117,8 @@ class Simulation:
             if not 0 <= value <= 1:
                 raise ValueError(f"{name} debe estar entre 0 y 1")
 
-    # ------------------------------------------------------------------
     # Lógica de la simulación
-    # ------------------------------------------------------------------
+
 
     def populate(self):
         """Genera la población inicial en posiciones aleatorias dentro de
@@ -273,9 +272,9 @@ class Simulation:
         contagiando o empeorando."""
         return not any(p.state in ("infected", "grave") for p in self.people)
 
-    # ------------------------------------------------------------------
+
     # Presentación (ventana de Pygame)
-    # ------------------------------------------------------------------
+
 
     def handle_event(self, event):
         """Responde a las teclas del usuario: pausar la simulación con

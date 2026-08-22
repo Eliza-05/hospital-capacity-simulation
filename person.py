@@ -13,7 +13,7 @@ import random
 from config import SCREEN_HEIGHT, SCREEN_WIDTH
 
 # Fracción de la velocidad máxima (`step`) que se le suma a la velocidad
-# en cada ciclo. Chica a propósito: el movimiento debe cambiar de rumbo
+# en cada ciclo.Es pequeña ya que el movimiento debe cambiar de rumbo
 # de a poco (inercia), no saltar a una dirección nueva de golpe.
 VELOCITY_JITTER_RATIO = 0.3
 

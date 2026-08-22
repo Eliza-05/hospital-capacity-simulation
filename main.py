@@ -20,7 +20,7 @@ from simulation import Simulation
 from exporter import export_results
 
 # Parámetros del modelo, iguales para todos los escenarios. Lo único que
-# cambia entre corridas es la capacidad del hospital (ver docs, sección 1.7).
+# cambia entre corridas es la capacidad del hospital 
 SIM_PARAMS = {
     "population": 300,
     "initial_infected": 5,

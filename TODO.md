@@ -5,7 +5,7 @@ Checklist compartido. Ver `docs/alcance_y_plan_de_trabajo.md` para el detalle co
 ## ⚠️ Antes de correr el proyecto — léeme
 
 La lógica completa (`person.py`, `hospital.py`, `config.py`, `simulation.py`)
-está terminada y probada — **82 tests en `tests/`**, correr con
+está terminada y probada — **109 tests en `tests/`**, correr con
 `python -m pytest tests/ -v`. El tamaño de ventana quedó fijo en `config.py`
 (`SCREEN_WIDTH=800, SCREEN_HEIGHT=600`) — usa esas mismas constantes en
 `draw()`/`run()` en vez de hardcodear otro tamaño.
@@ -18,13 +18,15 @@ tiene 2 parámetros nuevos obligatorios: `transmission_probability` e
 los parámetros, sus rangos válidos, y qué atributos/métodos puede usar
 `draw()`/`handle_event()`/`run()` sin tener que leer `simulation.py`.
 
-**Lo único que sigue bloqueado es el Bloque D** (correr 5/10/20 camas con
-semilla fija y redactar el análisis): no se puede ejecutar todavía porque
-depende de `exporter.py`, que sigue siendo un stub vacío (`export_results`,
-`export_timeline`, `build_summary_row` sin implementar — es tarea de Persona B
-en la sección C). En cuanto `exporter.py` funcione, correr los escenarios es
-inmediato: `Simulation` ya expone `self.history` (con `cycle` incluido) con
-todo lo necesario, y `sim.is_finished()` dice cuándo cortar cada corrida.
+**Bloque D ya está desbloqueado.** `exporter.py` está implementado y
+`python main.py --comparar` corre los 3 escenarios (5/10/20 camas, semilla
+fija 42) y genera `resultados/comparacion_camas.xlsx` con una hoja `resumen`
+comparativa y una hoja `timeline_run_N` por corrida. Los parámetros del
+modelo están centralizados en `SIM_PARAMS` dentro de `main.py`.
+
+Por defecto corre **5 repeticiones por escenario** (semillas 42-46, las
+mismas para las 3 capacidades) y agrega una hoja `promedios`: es la que hay
+que mirar para el análisis. Con `--reps 1` se hace una sola corrida.
 
 ## A. Lógica de simulación (Persona A)
 - [x] Implementar `Person` con estado (`susceptible/infected/grave/recovered/dead`) y temporizador reutilizable. (`infect`, `tick`, `set_grave`, `recover`, `die`, `move` — ver `tests/test_person.py`)
@@ -41,27 +43,75 @@ todo lo necesario, y `sim.is_finished()` dice cuándo cortar cada corrida.
 - [x] `Person.move()` — random walk acotado a `[0, width] x [0, height]` (constantes en `config.py`).
 - [x] `Simulation.populate()` — crea la población inicial con posiciones dentro de pantalla y marca a los `initial_infected`; registra el frame `cycle=0` en `self.history`.
 - [x] Tests de invariantes (`occupied == hospitalizados`, `occupied <= capacity`, `len(waiting_list) == graves esperando`, suma de estados == población) verificados a lo largo de una corrida completa con semilla fija.
-- [ ] Bloque D: correr los 3 escenarios (5/10/20 camas) y redactar el análisis — depende de `exporter.py` (Persona B) para poder generar el Excel.
+- [x] Bloque D: correr los 3 escenarios (5/10/20 camas) y redactar el análisis. (`docs/analisis_resultados.md`)
+- [x] Corregida la mortalidad para que dependa del tiempo sin cama, no de tener cama justo al vencer el temporizador (ver sección final).
 
 ## B. Visualización y controles (Persona B)
-- [ ] Al instanciar `Simulation` en `main.py`/`run()`, recordar pasar los 2 parámetros nuevos: `transmission_probability` e `infection_radius` (si se omiten, quedan en `0.0` y no hay contagio). Ver tabla completa de parámetros en `docs/alcance_y_plan_de_trabajo.md` sección 1.8.
-- [ ] Panel de texto en pantalla con los 8 contadores + ocupación de camas (agregar también `sim.current_cycle`, ya disponible).
-- [ ] Aviso visual cuando `hospital.is_saturated`.
-- [ ] Colores distintos por estado (azul/verde/naranja/rojo/morado).
-- [ ] Controles en vivo: pausa (`SPACE`, alterna `sim.paused`), subir/bajar camas (`UP`/`DOWN`, usar `sim.hospital.set_capacity(n)`), velocidad (`LEFT`/`RIGHT`).
-- [ ] Opcional: mostrar aviso de "epidemia terminada" cuando `sim.is_finished()` sea `True`.
+- [x] Al instanciar `Simulation` en `main.py`/`run()`, pasar `transmission_probability` e `infection_radius`. (centralizado en `SIM_PARAMS` de `main.py`, usado por `build_simulation()`)
+- [x] Panel de texto en pantalla con los 8 contadores + ocupación de camas + `current_cycle`. (`Simulation._draw_panel`, panel lateral de `PANEL_WIDTH=260` px a la derecha del área de simulación, para no tapar a los agentes)
+- [x] Aviso visual cuando `hospital.is_saturated`. (banner rojo arriba con cuántos están sin cama + barra de ocupación que se pone roja + texto "SATURADO" en el panel)
+- [x] Colores distintos por estado (azul/verde/naranja/rojo/morado). (`STATE_COLORS`; además aro blanco = tiene cama, aro amarillo = está en la lista de espera)
+- [x] Controles en vivo: pausa (`SPACE`), subir/bajar camas (`UP`/`DOWN`), velocidad (`LEFT`/`RIGHT`, x1 a x10). `ESC` cierra.
+- [x] Aviso de "epidemia terminada" cuando `sim.is_finished()`; además `run()` deja de actualizar para que el historial no siga creciendo con frames idénticos.
+- [x] `Simulation.run()` — loop de Pygame. `sim.speed` ahora sí tiene efecto: corre esa cantidad de `update()` por frame (no escala delta-time).
+- [x] Tests de controles y dibujado (`tests/test_controls.py`, 16 tests, sin abrir ventana).
 
 ## C. Datos y Excel (Persona B, con datos de Persona A)
-- [ ] Registrar historial por frame (`self.history`, ya incluye `cycle`).
-- [ ] Exportar hoja `timeline_run_N` por cada corrida.
-- [ ] Exportar hoja `resumen` con una fila por escenario (parámetros + resultados agregados).
-- [ ] Correr y guardar al menos 3 escenarios (5 / 10 / 20 camas), misma semilla (`random.Random(seed).random` como `random_fn`), capacidad fija por corrida. Se puede usar `sim.is_finished()` para cortar cada corrida en cuanto la epidemia termine en vez de un número fijo de ciclos.
+- [x] Registrar historial por frame (`self.history`, ya incluye `cycle`).
+- [x] Exportar hoja `timeline_run_N` por cada corrida. (`exporter.export_timeline`, columnas en español + `camas_ocupadas` derivada)
+- [x] Exportar hoja `resumen` con una fila por escenario (parámetros + resultados agregados). (`exporter.build_summary_row`: picos, fallecidos, espera acumulada, ciclos saturado, tasas de mortalidad)
+- [x] Correr y guardar al menos 3 escenarios (5 / 10 / 20 camas), misma semilla (`random.Random(seed).random` como `random_fn`), capacidad fija por corrida. (`python main.py --comparar` -> `resultados/comparacion_camas.xlsx`; corta con `sim.is_finished()`)
+- [x] Extra: gráficos embebidos en el .xlsx (líneas por corrida + barras comparativas en `resumen`) para el Bloque E.
+- [x] Tests del exportador (`tests/test_exporter.py`, 15 tests) — total del repo: 97.
 
 ## D. Análisis (Persona A)
-- [ ] Redactar la respuesta a la pregunta de decisión con evidencia del Excel.
+- [x] Redactar la respuesta a la pregunta de decisión con evidencia del Excel. (`docs/analisis_resultados.md`)
 
 ## E. Entregables finales (conjunto)
-- [ ] Grabar video demo de 2 min.
-- [ ] Preparar presentación de 2 min.
-- [ ] Revisar que el código corra limpio desde cero.
+- [x] Guion del video demo de 2 min, con minutado y plan B. (`docs/guion_video.md`)
+- [x] Contenido de la presentación de 2 min: 6 diapositivas + reparto entre los dos + preguntas probables. (`docs/presentacion.md`)
+- [x] Revisar que el código corra limpio desde cero. (verificado en una copia limpia: `venv` nuevo -> `pip install -r requirements-dev.txt` -> 125 tests OK -> `--comparar` genera el Excel -> `run()` abre, procesa teclas y cierra bien)
+- [x] `requirements.txt`: `pygame` -> `pygame-ce` (mismo `import pygame`, pero sí instala en Python 3.14).
+- [x] README completo: instalación, ambos modos de ejecución, tabla de teclas, colores, resultados y equipo.
+- [ ] **Grabar** el video de 2 min siguiendo `docs/guion_video.md`.
+- [ ] **Armar** las diapositivas en PowerPoint/Canva a partir de `docs/presentacion.md` (los gráficos se copian del Excel).
 - [ ] Empaquetar entrega: código + video + presentación + README.
+
+## Corrección del modelo de mortalidad (resuelta)
+
+Al correr los primeros escenarios, **los fallecidos salían idénticos con 5,
+10 y 20 camas** (19 en las tres corridas). Medido: **ningún paciente grave
+vencía su temporizador estando en la lista de espera** — 0 casos, aunque el
+pico de espera fuera 29.
+
+Causa: el temporizador de gravedad corre igual en cama que esperando, y
+`_grave_expire` miraba solo `person.hospitalized` **en el instante del
+vencimiento**. Un paciente que esperaba 24 de sus 40 ciclos y conseguía cama
+al final contaba como "hospitalizado" y recibía `mortality_hospitalized`
+(0.15) como si lo hubieran atendido todo el tiempo. Como además esos
+pacientes ocupaban la cama solo por su tiempo restante, las camas rotaban muy
+rápido y la fila se vaciaba antes de que a nadie se le venciera el plazo.
+Efecto neto: `mortality_waiting` (0.60) casi nunca se aplicaba y la pregunta
+de decisión del proyecto se respondía con "la capacidad no afecta la
+mortalidad", que era un artefacto.
+
+**Solución aplicada** (`Person.cycles_waiting` + `Simulation._grave_mortality`):
+la mortalidad se interpola entre `mortality_hospitalized` y
+`mortality_waiting` según qué fracción del periodo grave pasó sin cama.
+Los casos extremos dan lo mismo que antes (0 ciclos esperando -> 0.15; nunca
+consiguió cama -> 0.60), así que **los 82 tests de lógica siguen pasando sin
+cambios**; se agregaron 8 tests nuevos para la regla, incluido uno de
+regresión sobre la pregunta de decisión.
+
+Resultado con 5 repeticiones por escenario (promedios):
+
+| camas | fallecidos | pico en espera | espera acum. (persona-ciclo) | % tiempo saturado |
+|---|---|---|---|---|
+| 5 | 34.0 | 26.0 | 2120 | 66% |
+| 10 | 23.6 | 21.4 | 1227 | 54% |
+| 20 | 13.0 | 11.0 | 296 | 14% |
+
+⚠️ Nota para el análisis y la presentación: **una sola corrida por escenario
+no alcanza.** Con la semilla 99, 10 camas daba más muertos que 5 (35 / 39 /
+37) solo por azar; en 5 de 6 semillas probadas la tendencia sí bajaba. Por
+eso el default son 5 repeticiones y la hoja `promedios`.

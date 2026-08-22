@@ -19,8 +19,8 @@ class Person:
     que puede ser: susceptible (sana, puede contagiarse), infectada, grave
     (necesita hospitalización), recuperada o fallecida. También lleva un
     contador interno que indica cuántos ciclos faltan para que cambie de
-    estado, y un indicador de si en este momento está ocupando una cama
-    de hospital.
+    estado, un indicador de si en este momento está ocupando una cama
+    de hospital, y cuántos ciclos lleva acumulados esperando una.
     """
 
     def __init__(self, x, y, state="susceptible"):
@@ -29,6 +29,9 @@ class Person:
         self.state = state
         self.hospitalized = False
         self.timer = None
+        # Ciclos que la persona pasó grave sin conseguir cama. Se usa al
+        # vencer la gravedad para saber cuánta atención recibió realmente.
+        self.cycles_waiting = 0
 
     def infect(self, duration):
         """La persona pasa de sana a infectada y arranca el
@@ -50,6 +53,7 @@ class Person:
         hospitalización, y reinicia el conteo de ciclos."""
         self.state = "grave"
         self.timer = duration
+        self.cycles_waiting = 0
 
     def recover(self):
         """Marca a la persona como recuperada y si tiene una cama asignada, la libera"""

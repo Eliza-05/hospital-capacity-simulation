@@ -616,3 +616,115 @@ def test_update_does_nothing_while_paused():
     assert person.state == "infected"
     assert person.timer == 1
     assert sim.history == []
+
+
+# ----------------------------------------------------------------------
+# Mortalidad proporcional al tiempo que el paciente pasó sin cama
+# ----------------------------------------------------------------------
+
+def test_grave_mortality_uses_hospitalized_rate_when_never_waited():
+    sim = make_simulation(mortality_hospitalized=0.1, mortality_waiting=0.9,
+                           grave_duration=10)
+    person = Person(x=0, y=0)
+    sim.hospital.admit(person)
+    person.set_grave(10)
+
+    assert sim._grave_mortality(person) == pytest.approx(0.1)
+
+
+def test_grave_mortality_uses_waiting_rate_when_still_without_bed():
+    sim = make_simulation(mortality_hospitalized=0.1, mortality_waiting=0.9,
+                           initial_beds=0)
+    person = Person(x=0, y=0)
+    person.set_grave(10)
+    sim.hospital.admit(person)
+
+    assert sim._grave_mortality(person) == pytest.approx(0.9)
+
+
+def test_grave_mortality_interpolates_for_a_patient_that_waited_half_the_time():
+    sim = make_simulation(mortality_hospitalized=0.1, mortality_waiting=0.9,
+                           grave_duration=10)
+    person = Person(x=0, y=0)
+    sim.hospital.admit(person)
+    person.set_grave(10)
+    person.cycles_waiting = 5
+
+    assert sim._grave_mortality(person) == pytest.approx(0.5)
+
+
+def test_grave_mortality_caps_at_the_waiting_rate():
+    """Aunque haya esperado más ciclos que grave_duration, el riesgo no
+    puede superar el de no haber tenido cama nunca."""
+    sim = make_simulation(mortality_hospitalized=0.1, mortality_waiting=0.9,
+                           grave_duration=10)
+    person = Person(x=0, y=0)
+    sim.hospital.admit(person)
+    person.set_grave(10)
+    person.cycles_waiting = 50
+
+    assert sim._grave_mortality(person) == pytest.approx(0.9)
+
+
+def test_set_grave_resets_the_waiting_counter():
+    person = Person(x=0, y=0)
+    person.cycles_waiting = 7
+
+    person.set_grave(5)
+
+    assert person.cycles_waiting == 0
+
+
+def test_update_counts_waiting_cycles_only_for_graves_without_a_bed():
+    sim = make_simulation(initial_beds=1, grave_duration=100)
+    hospitalized = Person(x=50, y=50)
+    waiting = Person(x=50, y=50)
+    sim.people = [hospitalized, waiting]
+    hospitalized.set_grave(100)
+    sim.hospital.admit(hospitalized)
+    waiting.set_grave(100)
+    sim.hospital.admit(waiting)
+
+    for _ in range(4):
+        sim.update()
+
+    assert hospitalized.cycles_waiting == 0
+    assert waiting.cycles_waiting == 4
+
+
+def test_waiting_cycles_stop_accumulating_once_a_bed_is_assigned():
+    sim = make_simulation(initial_beds=1, grave_duration=100)
+    occupant = Person(x=50, y=50)
+    waiting = Person(x=50, y=50)
+    sim.people = [occupant, waiting]
+    occupant.set_grave(100)
+    sim.hospital.admit(occupant)
+    waiting.set_grave(100)
+    sim.hospital.admit(waiting)
+
+    for _ in range(3):
+        sim.update()
+    sim._recover(occupant)          # libera la cama -> entra el que esperaba
+    for _ in range(5):
+        sim.update()
+
+    assert waiting.hospitalized is True
+    assert waiting.cycles_waiting == 3
+
+
+def test_bed_capacity_changes_the_death_toll_over_a_full_run():
+    """Prueba de regresión de la pregunta de decisión del proyecto: con la
+    misma semilla, menos camas tienen que producir más fallecidos."""
+    def deaths(beds):
+        sim = Simulation(population=200, initial_infected=5, pct_grave=0.30,
+                          transmission_probability=0.10, infection_radius=45,
+                          infection_duration=60, grave_duration=40,
+                          mortality_hospitalized=0.15, mortality_waiting=0.60,
+                          initial_beds=beds,
+                          random_fn=random.Random(7).random)
+        sim.populate()
+        while not sim.is_finished():
+            sim.update()
+        return sim.history[-1]["dead"]
+
+    assert deaths(2) > deaths(50)

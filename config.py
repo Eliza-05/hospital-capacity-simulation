@@ -1,20 +1,31 @@
 """Constantes de configuración compartidas por todo el proyecto.
 
-Centraliza parámetros globales, como las dimensiones de la ventana de
-Pygame, para que los distintos módulos de la simulación (lógica y
-renderizado) usen siempre los mismos valores.
+Centraliza los parámetros globales para que la lógica de la simulación y
+el renderizado usen siempre los mismos valores.
 """
 
-# Área donde se mueven los agentes. La lógica de la simulación usa estos
-# límites para posicionar y mover a las personas.
+# Área lógica donde se mueven los agentes. La simulación posiciona y
+# mueve a las personas dentro de estos límites; el renderer se encarga
+# de traducirlos al tamaño real del mapa en pantalla, así que cambiar
+# la resolución de la ventana no altera la dinámica del modelo.
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 
-# Panel lateral de contadores, a la derecha del área de simulación. La
-# ventana total mide SCREEN_WIDTH + PANEL_WIDTH de ancho, para que el panel
-# no tape a los agentes.
+# Ancho del panel lateral original. Se conserva porque define la ventana
+# mínima esperada por los tests de dibujado.
 PANEL_WIDTH = 260
 
-# Frames por segundo de la ventana de Pygame. La velocidad de la simulación
-# no se cambia tocando esto, sino corriendo varios update() por frame.
-FPS = 12
+# Cuadros por segundo de la ventana. Solo afecta la fluidez de las
+# animaciones: la velocidad del modelo la fija CYCLE_RATE.
+FPS = 60
+
+# Ciclos de simulación por segundo a velocidad x1. La tecla de velocidad
+# multiplica este valor, de modo que acelerar no cambia cuántos frames se
+# dibujan sino cuántos ciclos entran en cada uno.
+#
+# Es la perilla para que la simulación se vea más calma: bajarlo hace que
+# las personas se desplacen más despacio en pantalla y que la epidemia
+# avance más lento, sin tocar el modelo. Cuánto se mueve cada persona por
+# ciclo (`step` en Person.move) sí es parte del modelo: cambiarlo alteraría
+# la mezcla de la población y, con ella, los resultados del Excel.
+CYCLE_RATE = 10

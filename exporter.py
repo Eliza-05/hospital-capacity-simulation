@@ -10,8 +10,6 @@ con una fila agregada por escenario ejecutado.
 import pandas as pd
 from openpyxl.chart import BarChart, LineChart, Reference
 
-# Orden y nombre en español de las columnas de las hojas `timeline_run_N`.
-# `camas_ocupadas` no viene en `history`: se deriva de capacidad - libres.
 TIMELINE_COLUMNS = [
     ("cycle", "ciclo"),
     ("susceptible", "susceptibles"),
@@ -31,7 +29,6 @@ TIMELINE_COLUMNS = [
 TIMELINE_CHART_SERIES = ["infectados", "graves", "hospitalizados",
                          "en_espera", "fallecidos"]
 
-# Nombre en español de los parámetros del escenario en la hoja `resumen`.
 PARAM_COLUMNS = [
     ("escenario", "escenario"),
     ("seed", "semilla"),
@@ -75,7 +72,6 @@ def build_summary_row(run_params, history):
     for key, label in PARAM_COLUMNS:
         if key in run_params:
             row[label] = run_params[key]
-    # Cualquier parámetro extra que no esté en PARAM_COLUMNS se conserva.
     known = {key for key, _ in PARAM_COLUMNS}
     for key, value in run_params.items():
         if key not in known and isinstance(value, (int, float, str, bool)):
@@ -89,7 +85,6 @@ def build_summary_row(run_params, history):
                  + final["recovered"] + final["dead"])
     ocupadas = [r["capacity"] - r["free_beds"] for r in history]
     ciclos_saturado = sum(1 for r in history if r["saturated"])
-    # Contagiados alguna vez = todos menos los que nunca se enfermaron.
     contagiados = poblacion - final["susceptible"]
 
     row.update({
@@ -104,8 +99,6 @@ def build_summary_row(run_params, history):
         "pico_graves": max(r["grave"] for r in history),
         "pico_camas_ocupadas": max(ocupadas),
         "pico_en_espera": max(r["waiting"] for r in history),
-        # Suma de personas-ciclo sin cama: mide la carga total de desatención,
-        # no solo el peor momento.
         "espera_acumulada_persona_ciclo": sum(r["waiting"] for r in history),
         "ciclos_con_pacientes_sin_cama": sum(1 for r in history if r["waiting"] > 0),
         "ciclos_saturado": ciclos_saturado,
@@ -195,7 +188,6 @@ def export_results(runs, output_path, promediar=False):
                  if promediar and "camas" in summary.columns else None)
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        # `resumen` primero para que sea la hoja que se abre por defecto.
         summary.to_excel(writer, sheet_name="resumen", index=False)
 
         if promedios is not None:

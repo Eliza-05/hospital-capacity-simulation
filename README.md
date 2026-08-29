@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![pygame-ce](https://img.shields.io/badge/pygame--ce-simulación-00A86B?logo=python&logoColor=white)](https://pyga.me/)
 [![pandas](https://img.shields.io/badge/pandas-exportación%20Excel-150458?logo=pandas&logoColor=white)](https://pandas.pydata.org/)
-[![pytest](https://img.shields.io/badge/tests-132%20passing-brightgreen?logo=pytest&logoColor=white)](tests/)
+[![pytest](https://img.shields.io/badge/tests-152%20passing-brightgreen?logo=pytest&logoColor=white)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 **Elizabeth Correa Suárez · Juan Sebastián Ortega Muñoz**
@@ -25,7 +25,7 @@
 5. [Cómo funciona el código internamente](#-cómo-funciona-el-código-internamente)
 6. [Las 3 formas de ejecutar el proyecto](#-las-3-formas-de-ejecutar-el-proyecto)
 7. [Cómo se ejecuta](#-cómo-se-ejecuta)
-8. [Evidencia / captura de la simulación](#-evidencia--captura-de-la-simulación)
+8. [La interfaz](#-la-interfaz)
 9. [Parámetros del modelo](#-parámetros-del-modelo)
 10. [Resultados (Excel)](#-resultados-excel)
 11. [Análisis](#-análisis)
@@ -65,6 +65,8 @@ hospital-capacity-simulation/
 ├── person.py
 ├── hospital.py
 ├── simulation.py
+├── theme.py
+├── renderer.py
 ├── exporter.py
 ├── main.py
 ├── requirements.txt
@@ -76,6 +78,7 @@ hospital-capacity-simulation/
 │   ├── test_hospital.py
 │   ├── test_simulation.py
 │   ├── test_controls.py
+│   ├── test_renderer.py
 │   ├── test_exporter.py
 │   └── test_main.py
 └── resultados/
@@ -84,13 +87,15 @@ hospital-capacity-simulation/
 
 | Archivo / carpeta | Qué hace |
 |---|---|
-| [`config.py`](config.py) | Constantes compartidas por todo el proyecto: tamaño de la ventana de simulación, ancho del panel lateral y FPS. |
+| [`config.py`](config.py) | Constantes compartidas por todo el proyecto: el área lógica donde se mueven los agentes, los FPS de la ventana y los ciclos por segundo del modelo. |
 | [`person.py`](person.py) | Clase `Person`: agente individual, su posición, estado epidemiológico y movimiento. |
 | [`hospital.py`](hospital.py) | Clase `Hospital`: administra las camas disponibles y la lista de espera FIFO. |
-| [`simulation.py`](simulation.py) | Clase `Simulation`: motor central que coordina a las personas y al hospital, avanza la lógica ciclo a ciclo y dibuja todo en pantalla con Pygame. |
+| [`simulation.py`](simulation.py) | Clase `Simulation`: motor central que coordina a las personas y al hospital, avanza la lógica ciclo a ciclo y maneja la ventana de Pygame. |
+| [`theme.py`](theme.py) | Paleta, tipografías y primitivas de dibujo (tarjetas, barras, halos, píldoras). Es lo único que define cómo se ve la interfaz. |
+| [`renderer.py`](renderer.py) | Clase `Renderer`: arma cada frame (mapa, hospital con sus camas, gráficos y panel) y anima los traslados de pacientes. |
 | [`exporter.py`](exporter.py) | Convierte `simulation.history` en un archivo Excel (`.xlsx`) con hojas de evolución temporal, resumen y promedios, más gráficos embebidos. |
 | [`main.py`](main.py) | Punto de entrada: define los parámetros del modelo y arma la simulación en uno de los tres modos de ejecución. |
-| [`tests/`](tests/) | Suite de tests (`pytest`) para la lógica, los controles/dibujado, la exportación y el parseo de argumentos. |
+| [`tests/`](tests/) | Suite de tests (`pytest`) para la lógica, los controles, el renderizado, la exportación y el parseo de argumentos. |
 | [`resultados/`](resultados/) | Carpeta donde se generan los `.xlsx` del modo comparación (ya contiene `comparacion_camas.xlsx`). |
 | [`requirements.txt`](requirements.txt) / [`requirements-dev.txt`](requirements-dev.txt) | Dependencias de ejecución y de desarrollo (tests). |
 | [`LICENSE`](LICENSE) | Licencia MIT del proyecto. |
@@ -152,18 +157,34 @@ Es el motor central del proyecto: crea la población inicial, avanza el estado d
 
 **Métodos de presentación (ventana de Pygame):**
 
+`Simulation` ya no dibuja: decide *cuándo* se dibuja y delega el *cómo* en [`renderer.py`](renderer.py).
+
 | Método | Qué hace |
 |---|---|
-| `handle_event(event)` | Responde a las teclas del usuario: pausar (`ESPACIO`), subir/bajar camas (`↑`/`↓`) y ajustar la velocidad (`←`/`→`). |
-| `_fonts()` | Crea (una sola vez) las tipografías usadas en el panel lateral. |
+| `handle_event(event)` | Responde a las teclas: pausar (`ESPACIO`), subir/bajar camas (`↑`/`↓`, de a 5 con `SHIFT`), velocidad (`←`/`→`) y avanzar un solo ciclo en pausa (`N`). |
 | `_state_counts()` | Cuenta cuánta gente hay en cada estado en el momento actual. |
-| `_draw_people(screen)` | Dibuja a cada persona como un punto del color de su estado; los pacientes graves llevan además un aro (blanco con cama, amarillo en espera). |
-| `_draw_counter(screen, y, label, value, color)` | Dibuja una fila `etiqueta ... valor` del panel lateral. |
-| `_draw_bed_bar(screen, y)` | Dibuja la barra de ocupación de camas, que se pone roja cuando el hospital se satura. |
-| `_draw_panel(screen)` | Dibuja el panel lateral completo: contadores por estado, datos del hospital, controles y ayuda de teclas. |
-| `_draw_alerts(screen)` | Dibuja los avisos grandes sobre el área de simulación: hospital saturado y epidemia terminada. |
-| `draw(screen)` | Junta todo el dibujo: fondo, personas, alertas y panel. |
-| `run()` | Inicializa Pygame y ejecuta el loop principal (eventos → `update()` × `speed` → `draw()`) hasta que se cierra la ventana o se presiona `ESC`. |
+| `_renderer()` | Devuelve el `Renderer`, creándolo la primera vez que se dibuja (el modo comparación nunca lo instancia). |
+| `_scaled(frame, size)` | Escala el lienzo al tamaño de la ventana reutilizando siempre la misma superficie destino. |
+| `draw(screen)` | Pide un frame al renderer y lo ajusta a `screen`, sea cual sea su tamaño. |
+| `_window_size()` *(estático)* | Calcula el tamaño inicial de la ventana: el lienzo completo si entra en la pantalla, o la mayor reducción proporcional que sí entre. |
+| `run()` | Inicializa Pygame y ejecuta el loop principal (eventos → ciclos pendientes → `draw()`) hasta que se cierra la ventana o se presiona `ESC`. |
+
+### `Renderer` — [`renderer.py`](renderer.py)
+
+Dibuja cada frame sobre un lienzo de tamaño fijo (1440×860) que después se escala a la ventana, así el diseño no depende de la resolución del monitor.
+
+La particularidad del renderer es que **la lógica del modelo no le avisa nada**: `Renderer.sync()` compara el estado actual de la simulación con el del frame anterior y deduce solo qué pasó (quién ingresó, quién pasó de la espera a una cama, quién recibió el alta, si se agregaron o quitaron camas). Eso permitió sumar toda la capa visual sin tocar una línea de `Person`, `Hospital` ni del `update()` de `Simulation`.
+
+| Método | Qué hace |
+|---|---|
+| `sync(sim)` | Compara con el frame anterior y genera animaciones, entradas del registro y asignaciones de cama. |
+| `_sync_beds(sim, capacity)` | Detecta altas e ingresos. Procesa **primero las altas**: liberan camas que en ese mismo ciclo puede ocupar quien ingresa. |
+| `_sync_queue(sim)` | Detecta quién entra a la sala de espera y quién la deja sin haber conseguido cama nunca. |
+| `_sync_capacity(sim, capacity)` | Anima las camas que se habilitan o se retiran y muda a quien quedaba en una cama que dejó de existir. |
+| `_reconcile_beds(sim, capacity)` | Red de seguridad: deja el mapa de camas idéntico a lo que dice el hospital, incluso si entraron muchos ciclos en un mismo frame. |
+| `bed_layout(capacity)` | Elige cuántas columnas usar y de qué tamaño dibujar cada cama para que entren todas en la sala. |
+| `field_pos(sim, person)` | Traduce las coordenadas del modelo a píxeles del mapa. |
+| `render(sim)` | Devuelve el lienzo con el frame completo: encabezado, mapa, gráficos, hospital, panel, traslados y avisos. |
 
 ---
 
@@ -271,26 +292,74 @@ python main.py --comparar --reps 1
 | Tecla | Acción |
 |---|---|
 | `ESPACIO` | Pausar / reanudar. |
-| `↑` / `↓` | Subir / bajar camas (bajar se rechaza si dejaría pacientes sin cama). |
+| `↑` / `↓` | Subir / bajar camas de a una. La cama aparece o desaparece con una animación en la sala. Bajar se rechaza si dejaría pacientes sin cama. |
+| `SHIFT` + `↑` / `↓` | Lo mismo, de a 5 camas. |
 | `←` / `→` | Bajar / subir la velocidad de la simulación (x1 a x10). |
+| `N` | Con la simulación en pausa, avanzar un solo ciclo (útil para explicar un momento puntual). |
 | `ESC` | Salir. |
+
+La ventana es redimensionable: la interfaz se dibuja sobre un lienzo fijo y se escala, así que se ve igual en cualquier tamaño.
 
 ---
 
-## 🖼️ Evidencia / captura de la simulación
+## 🖼️ La interfaz
 
-> **Placeholder:** reemplazar esta sección con una captura real de la ventana de la simulación corriendo (por ejemplo `captura_simulacion.png`).
-
-```markdown
 ![Captura de la simulación corriendo](captura_simulacion.png)
-```
 
-En la captura debería verse:
+*Ciclo 120 de la corrida por defecto (semilla 42, 10 camas): el hospital está saturado, las 10 camas ocupadas y 39 pacientes graves esperando afuera.*
 
-- El área de simulación con personas coloreadas según su estado: **azul** susceptible, **naranja** infectado, **rojo** grave, **verde** recuperado, **morado** fallecido.
-- Los pacientes graves con su aro distintivo: **blanco** si tienen cama asignada, **amarillo** si están en la lista de espera.
-- El panel lateral derecho con los contadores por estado, la ocupación de camas (barra que se pone roja al saturarse) y el estado de los controles (pausado/corriendo, velocidad).
-- Idealmente, el banner rojo de **HOSPITAL SATURADO** visible en la parte superior, para mostrar el caso más relevante del análisis.
+La pantalla está pensada para que **se entienda qué está pasando sin leer el código ni la documentación**. Se divide en cuatro bloques:
+
+### 1. Comunidad (mapa, arriba a la izquierda)
+
+Cada punto es una persona moviéndose:
+
+| | Estado |
+|---|---|
+| 🔵 azul | **Susceptible**: sana, puede contagiarse. |
+| 🟠 naranja con halo | **Infectado**: contagia a quien pase cerca. |
+| 🟢 verde | **Recuperado**: inmune, ya no participa de la epidemia. |
+| ✕ violeta apagado | **Fallecido**: deja de moverse. |
+
+Cuando alguien se contagia, un **anillo naranja se expande** en el lugar exacto donde ocurrió, así se ve la epidemia propagarse en vez de solo cambiar de color.
+
+Los pacientes **graves no aparecen en el mapa**: salieron de la comunidad y están en el hospital, internados o esperando. El pie del mapa siempre dice cuántos son.
+
+### 2. Hospital (columna del medio)
+
+Es el bloque central de la simulación y muestra cada cama **una por una**:
+
+- **Sala de internación**: una grilla con todas las camas numeradas. Una cama libre está vacía y apagada; una ocupada muestra al paciente acostado (almohada, cabeza y manta), un **monitor cardíaco animado** y, en el pie, una **barra verde** que avanza a medida que pasa su periodo crítico, con el texto `alta en N` indicando cuántos ciclos le faltan.
+- **El color de la manta cuenta su historia**: azul si consiguió cama apenas se agravó, cada vez más roja cuanto más tiempo esperó sin atención — que es exactamente lo que determina su probabilidad de morir.
+- **Sala de espera**: los pacientes graves que no encontraron cama, en orden de llegada. Cada uno tiene una barra de deterioro que va de verde a rojo según los ciclos que lleva esperando.
+- Cuando se agregan o quitan camas con `↑`/`↓`, **la cama aparece o desaparece en la grilla** con un destello verde o rojo.
+- Si el hospital se satura, todo el bloque se rodea de un **contorno rojo que late**.
+
+### 3. Traslados (animaciones que cruzan la pantalla)
+
+Cada movimiento de un paciente se dibuja como un token que viaja en arco, con su estela y su etiqueta:
+
+| Traslado | Qué significa |
+|---|---|
+| `INGRESA A CAMA` | Se agravó y había cama libre: va del mapa directo a su cama. |
+| `SIN CAMA: ESPERA` | Se agravó con el hospital lleno: va del mapa a la sala de espera. |
+| `PASA A CAMA` | Se liberó una cama y le tocaba a él: va de la sala de espera a la cama. |
+| `ALTA: RECUPERADO` | Superó el periodo crítico: sale de la cama y vuelve a la comunidad. |
+| `FALLECE` / `FALLECE ESPERANDO` | Murió en la cama o antes de conseguirla. |
+| `CAMBIO DE CAMA` | Se redujo la capacidad y su cama dejó de existir. |
+
+En el pico de la epidemia se mueven varios pacientes por ciclo. Animar cada uno por separado llenaba la pantalla de tokens cruzándose, así que **los traslados del mismo tipo se agrupan**: mientras uno está en curso, los siguientes se suman a él y el token muestra un contador (`×7`). En vez de 40 puntos disparados a la vez se ven 6 o 7 traslados legibles, cada uno diciendo a cuánta gente representa.
+
+El panel **«Qué está pasando»** sí deja por escrito cada movimiento por separado, con el número de cama concreto, y las entradas viejas se van apagando.
+
+### 4. Gráficos y panel (abajo a la izquierda y a la derecha)
+
+- **Evolución de la epidemia**: área apilada con la composición de la población en cada ciclo. La banda azul de arriba se va comiendo, la ola naranja pasa por el medio y el verde se acumula abajo. Las marcas rojas del borde superior son los ciclos en que el hospital estuvo lleno.
+- **Presión sobre el hospital**: camas ocupadas y, por encima de la línea punteada de capacidad, la cola de espera. El fondo rojo marca los tramos de saturación: es el gráfico que responde la pregunta del proyecto de un vistazo.
+- **Población**: barra apilada y conteo por estado, con porcentajes.
+- **Hospital**: ocupadas / libres / en espera, la barra de ocupación y el aviso de saturación.
+
+Al terminar la epidemia aparece sobre el mapa un **resumen final** con recuperados, fallecidos y cuántos ciclos estuvo saturado el hospital.
 
 ---
 
@@ -384,7 +453,7 @@ Qué NO representa este modelo:
 
 ## 🧪 Tests
 
-El proyecto tiene una suite de **132 tests** (`pytest`) en [`tests/`](tests/):
+El proyecto tiene una suite de **152 tests** (`pytest`) en [`tests/`](tests/):
 
 | Archivo | Qué cubre |
 |---|---|
@@ -392,6 +461,7 @@ El proyecto tiene una suite de **132 tests** (`pytest`) en [`tests/`](tests/):
 | [`test_hospital.py`](tests/test_hospital.py) | Admisión y alta de pacientes, la lista de espera FIFO, el cambio de capacidad (incluyendo los casos de rechazo) y la reasignación automática de camas liberadas. |
 | [`test_simulation.py`](tests/test_simulation.py) | La validación de parámetros del constructor, las transiciones de infección y gravedad, el contagio por proximidad, `_grave_mortality` (incluyendo la interpolación y sus casos límite), `populate()`, `update()`, `current_cycle`, `is_finished()`, y una prueba de invariantes a lo largo de una corrida completa. |
 | [`test_controls.py`](tests/test_controls.py) | `handle_event` (pausa, teclas de camas y velocidad) y `draw` sobre una `Surface` en memoria, sin abrir ninguna ventana. |
+| [`test_renderer.py`](tests/test_renderer.py) | Que el mapa de camas del renderer nunca se desincronice del hospital (incluso con varios ciclos por frame), que la grilla de camas entre en la sala sin superponerse para cualquier capacidad, que los agentes se dibujen dentro del mapa, y que dibujar no rompa sin camas, sin población o con la epidemia terminada. |
 | [`test_exporter.py`](tests/test_exporter.py) | La conversión de `history` a DataFrame, el cálculo de la fila de resumen (`build_summary_row`), el promedio por capacidad (`build_average_summary`) y la generación del archivo `.xlsx` completo con sus hojas y gráficos. |
 | [`test_main.py`](tests/test_main.py) | El parseo de `--random` en `_resolve_seed`. |
 

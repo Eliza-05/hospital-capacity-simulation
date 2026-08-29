@@ -2,9 +2,13 @@
 
 Es el motor central de la simulación: crea la población inicial, avanza
 el estado de cada persona ciclo a ciclo, gestiona los ingresos y altas
-en el hospital, y se encarga de dibujar todo en pantalla con Pygame.
-También guarda en self.history un registro por cada paso simulado, que
-luego usa exporter.py para generar reportes.
+en el hospital, y coordina la ventana de Pygame. También guarda en
+self.history un registro por cada paso simulado, que luego usa
+exporter.py para generar reportes.
+
+El dibujo en sí vive en renderer.py: acá solo se decide *cuándo* se
+dibuja y se le pasa el estado. Esa separación permite que el modo
+comparación corra sin tocar nada del renderizado.
 """
 
 import math
@@ -16,36 +20,21 @@ import random
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 
-from config import FPS, PANEL_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH
+from config import CYCLE_RATE, FPS, SCREEN_HEIGHT, SCREEN_WIDTH
 from hospital import Hospital
 from person import Person
+from renderer import Renderer
+from theme import CANVAS_HEIGHT, CANVAS_WIDTH, STATE_COLORS
 
-# Un color por estado
-STATE_COLORS = {
-    "susceptible": (70, 130, 220),    # azul
-    "infected": (240, 150, 50),       # naranja
-    "grave": (225, 60, 60),           # rojo
-    "recovered": (80, 200, 120),      # verde
-    "dead": (150, 90, 200),           # morado
-}
-STATE_LABELS = (
-    ("susceptible", "Susceptibles"),
-    ("infected", "Infectados"),
-    ("grave", "Graves"),
-    ("recovered", "Recuperados"),
-    ("dead", "Fallecidos"),
-)
-
-BACKGROUND = (18, 18, 24)
-PANEL_BACKGROUND = (30, 30, 40)
-TEXT = (235, 235, 240)
-TEXT_DIM = (150, 150, 165)
-BED_RING = (245, 245, 250)      # aro de quien tiene cama
-WAITING_RING = (250, 210, 70)   # aro de quien está en la lista de espera
-ALERT = (225, 60, 60)
-
-PERSON_RADIUS = 4
 MAX_SPEED = 10
+
+# Tope de ciclos que se pueden simular en un mismo frame. Sin él, un
+# tirón del sistema operativo haría que la simulación intente ponerse al
+# día de golpe y la ventana se congelaría.
+MAX_STEPS_PER_FRAME = 20
+
+# Cuánto de la pantalla puede ocupar la ventana como máximo.
+WINDOW_SCREEN_RATIO = (0.94, 0.90)
 
 
 class Simulation:
@@ -277,40 +266,42 @@ class Simulation:
 
 
     def handle_event(self, event):
-        """Responde a las teclas del usuario: pausar la simulación con
-        espacio, cambiar el número de camas con las flechas arriba/abajo,
-        y ajustar la velocidad con las flechas izquierda/derecha."""
+        """Responde a las teclas del usuario: espacio pausa, las flechas
+        arriba/abajo cambian las camas (de a 5 con SHIFT), las flechas
+        izquierda/derecha la velocidad, y N adelanta un solo ciclo
+        mientras la simulación está en pausa."""
         if event.type != pygame.KEYDOWN:
             return
+
+        # Los eventos construidos a mano en los tests no traen `mod`.
+        step = 5 if getattr(event, "mod", 0) & pygame.KMOD_SHIFT else 1
 
         if event.key == pygame.K_SPACE:
             self.paused = not self.paused
         elif event.key == pygame.K_UP:
             # set_capacity devuelve False si el cambio no se puede aplicar;
             # subir siempre se puede, así que no hay nada que manejar.
-            self.hospital.set_capacity(self.hospital.capacity + 1)
+            self.hospital.set_capacity(self.hospital.capacity + step)
         elif event.key == pygame.K_DOWN:
-            # Bajar se rechaza si dejaría pacientes sin cama: se ignora.
-            self.hospital.set_capacity(self.hospital.capacity - 1)
+            # Bajar se rechaza si dejaría pacientes sin cama. Se prueba con
+            # pasos cada vez más chicos para que la tecla haga algo aunque
+            # no quepa el salto completo.
+            for size in range(step, 0, -1):
+                if self.hospital.set_capacity(
+                        max(self.hospital.capacity - size, 0)):
+                    break
         elif event.key == pygame.K_RIGHT:
             self.speed = min(self.speed + 1, MAX_SPEED)
         elif event.key == pygame.K_LEFT:
             self.speed = max(self.speed - 1, 1)
+        elif event.key == pygame.K_n and self.paused:
+            # Avance ciclo a ciclo: útil para explicar en detalle qué pasa
+            # en un momento puntual sin que la simulación siga corriendo.
+            self.paused = False
+            self.update()
+            self.paused = True
 
     # -- dibujo ---------------------------------------------------------
-
-    def _fonts(self):
-        """Crea (una sola vez) las tipografías del panel."""
-        if getattr(self, "_font_cache", None) is None:
-            if not pygame.font.get_init():
-                pygame.font.init()
-            self._font_cache = {
-                "title": pygame.font.SysFont("Arial", 17, bold=True),
-                "body": pygame.font.SysFont("Arial", 15),
-                "small": pygame.font.SysFont("Arial", 13),
-                "alert": pygame.font.SysFont("Arial", 22, bold=True),
-            }
-        return self._font_cache
 
     def _state_counts(self):
         """Cuenta cuánta gente hay en cada estado en este momento."""
@@ -319,148 +310,69 @@ class Simulation:
             counts[person.state] += 1
         return counts
 
-    def _draw_people(self, screen):
-        """Dibuja a cada persona como un punto del color de su estado.
+    def _renderer(self):
+        """Devuelve el renderer, creándolo la primera vez que se dibuja.
 
-        Los pacientes graves llevan además un aro: blanco si consiguieron
-        cama, amarillo si están en la lista de espera. Así se ve de un
-        vistazo a quién está atendiendo el hospital y a quién no."""
-        for person in self.people:
-            position = (int(person.x), int(person.y))
-            if person.state == "dead":
-                pygame.draw.circle(screen, STATE_COLORS["dead"], position,
-                                    PERSON_RADIUS - 1)
-                continue
+        Se crea perezosamente para que el modo comparación, que nunca
+        dibuja, no cargue fuentes ni superficies que no va a usar."""
+        if getattr(self, "_renderer_cache", None) is None:
+            self._renderer_cache = Renderer()
+        return self._renderer_cache
 
-            pygame.draw.circle(screen, STATE_COLORS[person.state], position,
-                                PERSON_RADIUS)
-            if person.state == "grave":
-                ring = BED_RING if person.hospitalized else WAITING_RING
-                pygame.draw.circle(screen, ring, position,
-                                    PERSON_RADIUS + 3, 2)
-
-    def _draw_counter(self, screen, y, label, value, color=None):
-        """Escribe una fila `etiqueta ..... valor` del panel, con un
-        cuadradito del color del estado cuando corresponde."""
-        fonts = self._fonts()
-        x = SCREEN_WIDTH + 16
-        if color is not None:
-            pygame.draw.rect(screen, color, pygame.Rect(x, y + 4, 10, 10))
-            x += 18
-
-        screen.blit(fonts["body"].render(label, True, TEXT), (x, y))
-        value_text = fonts["body"].render(str(value), True, TEXT)
-        screen.blit(value_text,
-                    (SCREEN_WIDTH + PANEL_WIDTH - 16 - value_text.get_width(), y))
-        return y + 21
-
-    def _draw_bed_bar(self, screen, y):
-        """Barra de ocupación de camas: se llena a medida que se ocupan y
-        se pone roja cuando el hospital queda saturado."""
-        x = SCREEN_WIDTH + 16
-        width = PANEL_WIDTH - 32
-        pygame.draw.rect(screen, (60, 60, 75), pygame.Rect(x, y, width, 16))
-
-        if self.hospital.capacity > 0:
-            fraction = self.hospital.occupied / self.hospital.capacity
-            color = ALERT if self.hospital.is_saturated else (80, 200, 120)
-            pygame.draw.rect(screen, color,
-                              pygame.Rect(x, y, int(width * fraction), 16))
-        return y + 24
-
-    def _draw_panel(self, screen):
-        """Panel lateral con los contadores, la ocupación de camas, el
-        estado de los controles y la ayuda de teclas."""
-        fonts = self._fonts()
-        counts = self._state_counts()
-        hospital = self.hospital
-
-        pygame.draw.rect(screen, PANEL_BACKGROUND,
-                          pygame.Rect(SCREEN_WIDTH, 0, PANEL_WIDTH,
-                                      SCREEN_HEIGHT))
-
-        x = SCREEN_WIDTH + 16
-        y = 16
-        screen.blit(fonts["title"].render("Ciclo " + str(self.current_cycle),
-                                           True, TEXT), (x, y))
-        y += 30
-
-        for state, label in STATE_LABELS:
-            y = self._draw_counter(screen, y, label, counts[state],
-                                    STATE_COLORS[state])
-
-        y += 10
-        screen.blit(fonts["title"].render("Hospital", True, TEXT), (x, y))
-        y += 26
-        y = self._draw_counter(screen, y, "Hospitalizados",
-                                hospital.occupied, BED_RING)
-        y = self._draw_counter(screen, y, "En espera",
-                                len(hospital.waiting_list), WAITING_RING)
-        y = self._draw_counter(screen, y, "Camas libres", hospital.free_beds)
-        y = self._draw_counter(
-            screen, y, "Ocupación",
-            f"{hospital.occupied}/{hospital.capacity}")
-        y = self._draw_bed_bar(screen, y)
-
-        if hospital.is_saturated:
-            screen.blit(fonts["body"].render("SATURADO", True, ALERT), (x, y))
-        y += 30
-
-        screen.blit(fonts["title"].render("Controles", True, TEXT), (x, y))
-        y += 26
-        y = self._draw_counter(screen, y, "Estado",
-                                "PAUSADO" if self.paused else "corriendo")
-        y = self._draw_counter(screen, y, "Velocidad", f"x{self.speed}")
-
-        y = SCREEN_HEIGHT - 92
-        for line in ("ESPACIO   pausar / reanudar",
-                     "ARRIBA / ABAJO   +/- camas",
-                     "IZQ / DER   velocidad",
-                     "ESC   salir"):
-            screen.blit(fonts["small"].render(line, True, TEXT_DIM), (x, y))
-            y += 18
-
-    def _draw_alerts(self, screen):
-        """Avisos grandes sobre el área de simulación: hospital saturado
-        (con cuánta gente está esperando cama) y epidemia terminada."""
-        fonts = self._fonts()
-
-        if self.hospital.is_saturated:
-            waiting = len(self.hospital.waiting_list)
-            banner = pygame.Surface((SCREEN_WIDTH, 34))
-            banner.set_alpha(210)
-            banner.fill(ALERT)
-            screen.blit(banner, (0, 0))
-            text = fonts["alert"].render(
-                f"HOSPITAL SATURADO  -  {waiting} SIN CAMA", True, TEXT)
-            screen.blit(text, ((SCREEN_WIDTH - text.get_width()) // 2, 5))
-
-        if self.is_finished() and self.people:
-            text = fonts["alert"].render("EPIDEMIA TERMINADA", True, TEXT)
-            box = pygame.Surface((text.get_width() + 40, 48))
-            box.set_alpha(220)
-            box.fill((40, 40, 55))
-            position = ((SCREEN_WIDTH - box.get_width()) // 2,
-                        SCREEN_HEIGHT // 2 - 24)
-            screen.blit(box, position)
-            screen.blit(text, (position[0] + 20, position[1] + 12))
+    def _scaled(self, frame, size):
+        """Escala el frame al tamaño de la ventana, reutilizando siempre
+        la misma superficie destino para no reservar memoria por frame."""
+        cache = getattr(self, "_scaled_cache", None)
+        if cache is None or cache.get_size() != size:
+            cache = pygame.Surface(size)
+            self._scaled_cache = cache
+        try:
+            pygame.transform.smoothscale(frame, size, cache)
+        except (ValueError, pygame.error):
+            # smoothscale exige 24/32 bits; con otras profundidades se cae
+            # al escalado simple, que acepta cualquier superficie.
+            cache.blit(pygame.transform.scale(frame, size), (0, 0))
+        return cache
 
     def draw(self, screen):
-        """Dibuja en pantalla a cada persona con un color según su estado,
-        muestra un panel con los contadores generales y una advertencia
-        visual cuando el hospital se queda sin camas."""
-        screen.fill(BACKGROUND)
-        self._draw_people(screen)
-        self._draw_alerts(screen)
-        self._draw_panel(screen)
+        """Dibuja un frame completo sobre `screen`.
+
+        El renderer trabaja siempre sobre un lienzo de tamaño fijo y acá
+        se lo ajusta al destino, así la interfaz se ve igual sin importar
+        el tamaño de la ventana."""
+        frame = self._renderer().render(self)
+        size = screen.get_size()
+        if size == frame.get_size():
+            screen.blit(frame, (0, 0))
+        else:
+            screen.blit(self._scaled(frame, size), (0, 0))
+
+    @staticmethod
+    def _window_size():
+        """Tamaño inicial de la ventana: el lienzo completo si entra en la
+        pantalla, o la mayor reducción proporcional que sí entre."""
+        try:
+            desktop_w, desktop_h = pygame.display.get_desktop_sizes()[0]
+        except (pygame.error, IndexError, AttributeError):
+            info = pygame.display.Info()
+            desktop_w, desktop_h = info.current_w, info.current_h
+
+        ratio_w, ratio_h = WINDOW_SCREEN_RATIO
+        scale = min(1.0,
+                    desktop_w * ratio_w / CANVAS_WIDTH,
+                    desktop_h * ratio_h / CANVAS_HEIGHT)
+        return (int(CANVAS_WIDTH * scale), int(CANVAS_HEIGHT * scale))
 
     def run(self):
-        """Arranca y controla la ventana de Pygame: inicializa todo, y en
-        cada vuelta del loop procesa eventos, actualiza la simulación y
-        vuelve a dibujar la pantalla."""
+        """Arranca y controla la ventana de Pygame.
+
+        El dibujo corre a `FPS` cuadros por segundo y la simulación avanza
+        a `CYCLE_RATE` ciclos por segundo multiplicados por `speed`: así
+        las animaciones se ven fluidas aunque el modelo vaya lento, y
+        acelerar no convierte la pantalla en un parpadeo."""
         pygame.init()
-        screen = pygame.display.set_mode(
-            (SCREEN_WIDTH + PANEL_WIDTH, SCREEN_HEIGHT))
+        screen = pygame.display.set_mode(self._window_size(),
+                                          pygame.RESIZABLE)
         pygame.display.set_caption(
             "Capacidad hospitalaria durante una epidemia")
         clock = pygame.time.Clock()
@@ -468,6 +380,9 @@ class Simulation:
         if not self.people:
             self.populate()
 
+        # Ciclos pendientes de simular; guarda la fracción sobrante entre
+        # frames para que la velocidad promedio sea exacta.
+        pending = 0.0
         running = True
         while running:
             for event in pygame.event.get():
@@ -476,19 +391,24 @@ class Simulation:
                 elif (event.type == pygame.KEYDOWN
                         and event.key == pygame.K_ESCAPE):
                     running = False
+                elif event.type == pygame.VIDEORESIZE:
+                    screen = pygame.display.set_mode(event.size,
+                                                      pygame.RESIZABLE)
                 else:
                     self.handle_event(event)
 
-            # `speed` no acelera el tiempo: corre más ciclos por frame. Al
-            # terminar la epidemia se deja de actualizar para que el
-            # historial no siga creciendo con frames idénticos.
-            for _ in range(self.speed):
-                if self.is_finished():
-                    break
-                self.update()
+            delta = clock.tick(FPS) / 1000.0
+            if not self.paused and not self.is_finished():
+                pending += delta * CYCLE_RATE * self.speed
+                steps = min(int(pending), MAX_STEPS_PER_FRAME)
+                pending -= steps
+                for _ in range(steps):
+                    if self.is_finished():
+                        pending = 0.0
+                        break
+                    self.update()
 
             self.draw(screen)
             pygame.display.flip()
-            clock.tick(FPS)
 
         pygame.quit()
